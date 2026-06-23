@@ -1,0 +1,44 @@
+{
+  "name": "ui-crud-sqlserver",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "dev:backend": "powershell -NoProfile -Command \"Set-Location 'SampleTracking/src'; python -m uvicorn backend.main:app --reload --port 8000\"",
+    "dev:backend:alt": "powershell -NoProfile -Command \"Set-Location 'SampleTracking/src'; python -m uvicorn backend.main:app --reload --port 8001\"",
+    "start:backend": "powershell -NoProfile -Command \"Set-Location 'SampleTracking/src'; python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000\"",
+    "start:backend:alt": "powershell -NoProfile -Command \"Set-Location 'SampleTracking/src'; python -m uvicorn backend.main:app --host 0.0.0.0 --port 8001\"",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "reset-root-password": "node scripts/reset-root-password.js"
+  },
+  "dependencies": {
+    "@google/genai": "^1.43.0",
+    "exceljs": "^4.4.0",
+    "framer-motion": "^12.38.0",
+    "imagekit": "^6.0.0",
+    "lucide-react": "^1.6.0",
+    "mssql": "^12.2.0",
+    "next": "^14.2.35",
+    "next-pwa": "^5.6.0",
+    "openai": "^6.25.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "web-push": "^3.6.7",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/mssql": "^9.1.9",
+    "@types/node": "^20.11.5",
+    "@types/react": "^18.2.48",
+    "@types/react-dom": "^18.2.18",
+    "@types/web-push": "^3.6.4",
+    "autoprefixer": "^10.4.17",
+    "eslint": "^10.0.2",
+    "eslint-config-next": "16.1.6",
+    "postcss": "^8.4.33",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5.3.3"
+  }
+}
