@@ -24,7 +24,7 @@ export default function DetailProduct() {
   const [error, setError] = useState<string | null>(null);
 
   const [trackLoading, setTrackLoading] = useState(false);
-  const [trackMessage, setTrackMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [trackMessage, setTrackMessage] = useState<{ type: 'success' | 'error' | 'warning'; text: string } | null>(null);
   const [role, setRole] = useState<AppRole | null>(null);
 
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
@@ -123,12 +123,18 @@ export default function DetailProduct() {
         throw new Error(lastError || 'Tidak bisa menghubungi backend lampu');
       }
 
+      const statusLabel = successResponse?.esp_status === 'online' ? 'Online' : 'Offline';
       setTrackMessage({
         type: 'success',
-        text: `Lacak sampel aktif: ${lampCode} (${successResponse?.esp_status || 'unknown'})`
+        text: `Lacak sampel aktif: ${lampCode} (${statusLabel})`
       });
     } catch (trackError: any) {
-      setTrackMessage({ type: 'error', text: `Gagal melacak sampel: ${trackError.message}` });
+      const msg = trackError.message || '';
+      if (msg.toLowerCase().includes('belum dikonfigurasi')) {
+        setTrackMessage({ type: 'warning', text: msg });
+      } else {
+        setTrackMessage({ type: 'error', text: `Gagal melacak sampel: ${msg}` });
+      }
     } finally {
       setTrackLoading(false);
     }
@@ -313,7 +319,11 @@ export default function DetailProduct() {
         </div>
 
         {trackMessage && (
-          <div className={`mb-6 p-4 rounded-lg ${trackMessage.type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+          <div className={`mb-6 p-4 rounded-lg ${
+            trackMessage.type === 'success' ? 'bg-green-100 text-green-700' :
+            trackMessage.type === 'warning' ? 'bg-yellow-100 text-yellow-800' :
+            'bg-red-100 text-red-700'
+          }`}>
             {trackMessage.text}
           </div>
         )}

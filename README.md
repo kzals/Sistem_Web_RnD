@@ -23,7 +23,7 @@ Sistem manajemen sampel kain berbasis web untuk departemen R&D. Mengintegrasikan
 |-------|-----------|
 | **Frontend** | Next.js 14, TypeScript, Tailwind CSS, PWA |
 | **Backend API** | FastAPI (Python), SQLAlchemy, SQLite |
-| **Database** | SQL Server (master data) + SQLite (lamp history) |
+| **Database** | SQL Server (master data) + SQLite (ESP config, lamp history) |
 | **Hardware** | ESP32 microcontroller, HTTP API |
 | **Auth** | Session-based, HMAC signed |
 | **Notifications** | Web Push API (VAPID), Service Worker |
@@ -39,9 +39,10 @@ ui_web_rnd/
 │   ├── components/         # React components
 │   └── lib/                # Utility functions, auth, search engine
 ├── backend/                # FastAPI backend
-│   ├── main.py             # ESP32 lamp control API
-│   ├── models.py           # SQLAlchemy models
-│   └── database.py         # DB connection
+│   ├── main.py             # ESP32 lamp control API + device CRUD + heartbeat
+│   ├── models.py           # SQLAlchemy models (Device, HistoryLampu)
+│   ├── database.py         # DB connection (SQLite)
+│   └── seed_devices.py     # One-time migration: .env → DB
 ├── SampleTracking/         # Legacy ESP tracking backend
 │   └── src/
 │       └── backend/
@@ -51,7 +52,6 @@ ui_web_rnd/
 ├── public/                 # Static assets
 ├── .env.example            # Environment variable template
 ├── SETUP.md                # Setup guide (detail)
-├── REQUIREMENTS.md         # System requirements
 └── README.md               # This file
 ```
 
@@ -78,7 +78,10 @@ cd backend
 pip install -r requirements.txt
 cd ..
 
-# 5. Jalankan development server
+# 5. Seed data ESP ke database
+python -m backend.seed_devices
+
+# 6. Jalankan development server
 npm run dev
 ```
 
@@ -86,17 +89,6 @@ Untuk panduan lengkap, lihat [SETUP.md](SETUP.md).
 
 ---
 
-## Screenshots
-
-> *(Tambahkan screenshot di sini)*
-
----
-
-## Lisensi
-
-Proprietary — lihat file [LICENSE](LICENSE) untuk detail.
-
----
 
 ## Kredit
 

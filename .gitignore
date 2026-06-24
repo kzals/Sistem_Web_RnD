@@ -40,6 +40,7 @@ next-env.d.ts
 
 # python virtual environments
 .venv/
+/SampleTracking/venv/
 
 # python bytecode
 __pycache__/
@@ -61,6 +62,9 @@ __pycache__/
 
 # duplicate docs folder
 /docs(1)/
+
+# SampleTracking legacy frontend
+/SampleTracking/src/frontend/node_modules/
 
 # local ngrok configs (contains private authtokens)
 /scripts/ngrok/*.yml

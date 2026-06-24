@@ -53,31 +53,31 @@ LEMARI_CONFIG = {
             "1-4": {"start": 1, "end": 16},      # 11A-14D
             "5-8": {"start": 145, "end": 160}     # 15A-18D
         },
-        "base_url": os.getenv("ESP_Lemari1_Base", "http://192.168.1.100").rstrip("/")
+        "base_url": (os.getenv("ESP_Lemari1_Base") or "").rstrip("/")
     },
     2: {
         "name": "Lemari 2",
         "start": 17,
         "end": 48,
-        "base_url": os.getenv("ESP_Lemari2_Base", "http://192.168.1.100").rstrip("/")
+        "base_url": (os.getenv("ESP_Lemari2_Base") or "").rstrip("/")
     },    # 21A-28D
     3: {
         "name": "Lemari 3",
         "start": 49,
         "end": 80,
-        "base_url": os.getenv("ESP_Lemari3_Base", "http://192.168.1.101").rstrip("/")
+        "base_url": (os.getenv("ESP_Lemari3_Base") or "").rstrip("/")
     },    # 31A-38D
     4: {
         "name": "Lemari 4",
         "start": 81,
         "end": 112,
-        "base_url": os.getenv("ESP_Lemari4_Base", "http://192.168.1.101").rstrip("/")
+        "base_url": (os.getenv("ESP_Lemari4_Base") or "").rstrip("/")
     },   # 41A-48D
     5: {
         "name": "Lemari 5",
         "start": 113,
         "end": 144,
-        "base_url": os.getenv("ESP_Lemari5_Base", "http://192.168.1.101").rstrip("/")
+        "base_url": (os.getenv("ESP_Lemari5_Base") or "").rstrip("/")
     }   # 51A-58D
 }
 
@@ -201,22 +201,21 @@ def _http_client() -> httpx.AsyncClient:
 # ==============================
 # ESP COMMUNICATION
 # ==============================
-async def _esp_send_cmd(board: dict, cmd: str) -> bool:
+async def _esp_send_cmd(board: dict, cmd: str) -> tuple[bool, str]:
     base_url = board["base_url"]
 
     if not base_url:
-        print(f"{board['name']} belum dikonfigurasi")
-        return False
+        return False, "not_configured"
 
     url = f"{base_url}{SEND_PATH}"
 
     try:
         async with _http_client() as client:
             r = await client.post(url, json={"cmd": cmd})
-            return r.status_code == 200
+            return r.status_code == 200, "ok"
     except Exception as e:
         print(f"ERROR kirim ke {board['name']}:", e)
-        return False
+        return False, "offline"
 
 
 async def _esp_get_status(board: dict):
@@ -252,7 +251,13 @@ async def control_lampu(
 
     cmd = f"{lamp_code}{request.state}"
 
-    is_esp_online = await _esp_send_cmd(board, cmd)
+    is_esp_online, esp_status = await _esp_send_cmd(board, cmd)
+
+    if esp_status == "not_configured":
+        raise HTTPException(
+            status_code=400,
+            detail=f"{board['name']} belum dikonfigurasi. Set ESP_{board['id']}_Base di file .env"
+        )
 
     db_history = models.HistoryLampu(
         lamp_number=lamp_code,
@@ -268,6 +273,7 @@ async def control_lampu(
     return {
         "message": "Perintah diproses",
         "board": board["name"],
+        "configured": True,
         "esp_status": "online" if is_esp_online else "offline",
         "lamp_input": lamp_input,
         "lamp_mapped": lamp_code,
@@ -325,9 +331,20 @@ async def esp_status():
         else:
             address_range = [lemari_config["start"], lemari_config["end"]]
 
+        configured = bool(base_url)
+
+        if not configured:
+            config_message = "Belum diKonfigurasi"
+        elif online:
+            config_message = "Online"
+        else:
+            config_message = "Offline"
+
         status[f"LEMARI_{lemari_num}"] = {
             "name": f"ESP Lemari {lemari_num}",
             "online": online,
+            "configured": configured,
+            "config_message": config_message,
             "lemari_range": [lemari_num],
             "address_range": address_range,
             "url": base_url if base_url else "Not configured"

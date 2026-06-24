@@ -11,21 +11,14 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 
-# ==============================
-# LOAD ENV
-# ==============================
 load_dotenv()
 
-# Modul lokal
 from . import models, database
 
 models.Base.metadata.create_all(bind=database.engine)
 
 app = FastAPI(title="Smart Lamp Controller API - Lemari System")
 
-# ==============================
-# CORS
-# ==============================
 origins = [
 	"http://localhost",
 	"http://localhost:3000",
@@ -40,21 +33,28 @@ app.add_middleware(
 	allow_headers=["*"],
 )
 
-# ==============================
-# MULTI BOARD CONFIG & ADDRESS MAPPING
-# ==============================
 SEND_PATH = "/send"
 STATUS_PATH = "/status"
 
 
-async def _is_esp_online(base_url: str) -> bool:
-	"""Cek konektivitas ESP dengan fallback endpoint agar tidak false offline."""
-	if not base_url:
+# ==============================
+# ESP HELPERS
+# ==============================
+def _ensure_base_url(ip_address: str) -> str:
+	if not ip_address:
+		return ""
+	ip = ip_address.strip()
+	if ip.startswith("http://") or ip.startswith("https://"):
+		return ip.rstrip("/")
+	return f"http://{ip}"
+
+
+async def _is_esp_online(ip_address: str) -> bool:
+	base = _ensure_base_url(ip_address)
+	if not base:
 		return False
-
-	candidates = [f"{base_url}{STATUS_PATH}", base_url, f"{base_url}/"]
+	candidates = [f"{base}{STATUS_PATH}", base, f"{base}/"]
 	timeout = httpx.Timeout(connect=2.0, read=2.0, write=1.0, pool=2.0)
-
 	async with httpx.AsyncClient(timeout=timeout) as client:
 		for url in candidates:
 			try:
@@ -63,67 +63,97 @@ async def _is_esp_online(base_url: str) -> bool:
 					return True
 			except Exception:
 				continue
-
 	return False
 
-# Alamat range untuk setiap lemari
-LEMARI_CONFIG = {
-	1: {
-		"name": "Lemari Putih",
-		"color_name": "Putih",
-		"raks": {
-			"1-4": {"start": 1, "end": 16},      # 11A-14D
-			"5-8": {"start": 145, "end": 160}     # 15A-18D
-		},
-		"base_url": os.getenv("ESP_Lemari1_Base", "http://192.168.1.100").rstrip("/"),
-		# Lemari 6 dipakai sebagai konfigurasi khusus Putih-1 agar mudah ditambah IP saat Arduino siap.
-		"putih1_url": os.getenv("ESP_Lemari6_Base", "").rstrip("/") or os.getenv("ESP_Lemari1_Secondary_Base", "").rstrip("/"),
-		"secondary_url": os.getenv("ESP_Lemari1_Secondary_Base", "http://192.168.14.159").rstrip("/")
-	},
-	2: {
-		"name": "Lemari Kuning",
-		"color_name": "Kuning",
-		"start": 17,
-		"end": 48,
-		"base_url": os.getenv("ESP_Lemari2_Base", "http://192.168.1.100").rstrip("/")
-	},    # 21A-28D
-	3: {
-		"name": "Lemari Biru",
-		"color_name": "Biru",
-		"start": 49,
-		"end": 80,
-		"base_url": os.getenv("ESP_Lemari3_Base", "http://192.168.1.101").rstrip("/")
-	},    # 31A-38D
-	4: {
-		"name": "Lemari Merah",
-		"color_name": "Merah",
-		"start": 81,
-		"end": 112,
-		"base_url": os.getenv("ESP_Lemari4_Base", "http://192.168.1.101").rstrip("/")
-	},   # 41A-48D
-	5: {
-		"name": "Lemari Hijau",
-		"color_name": "Hijau",
-		"start": 113,
-		"end": 144,
-		"base_url": os.getenv("ESP_Lemari5_Base", "http://192.168.1.101").rstrip("/")
-	},   # 51A-58D
-	6: {
-		"name": "Lemari Putih 2",
-		"color_name": "Putih2",
-		"start": 145,
-		"end": 160,
-		"base_url": os.getenv("ESP_Lemari6_Base", "").rstrip("/")
-	}   # 61A-64D
-}
 
-print("\n=== LEMARI & ADDRESS CONFIGURATION ===")
-for lemari_num, config in LEMARI_CONFIG.items():
-	print(f"Lemari {lemari_num}: {config['name']}")
-print("\n=== ESP LEMARI BASE CONFIGURATION ===")
-for lemari_num, config in LEMARI_CONFIG.items():
-	print(f"Lemari {lemari_num} -> {config.get('base_url', '')}")
-print("="*40 + "\n")
+async def _esp_send_cmd(ip_address: str, cmd: str) -> tuple[bool, str]:
+	base = _ensure_base_url(ip_address)
+	if not base:
+		return False, "not_configured"
+	url = f"{base}{SEND_PATH}"
+	try:
+		timeout = httpx.Timeout(connect=5.0, read=2.0, write=1.0, pool=2.0)
+		async with httpx.AsyncClient(timeout=timeout) as client:
+			r = await client.post(url, json={"cmd": cmd})
+			return r.status_code == 200, "ok"
+	except Exception as e:
+		print(f"ERROR kirim ke {base}:", e)
+		return False, "offline"
+
+
+async def _esp_get_status(ip_address: str):
+	base = _ensure_base_url(ip_address)
+	if not base:
+		return None
+	try:
+		timeout = httpx.Timeout(connect=5.0, read=2.0, write=1.0, pool=2.0)
+		async with httpx.AsyncClient(timeout=timeout) as client:
+			for url in (f"{base}{STATUS_PATH}", base, f"{base}/"):
+				try:
+					r = await client.get(url)
+					if r.status_code == 200:
+						return r.json()
+					if 200 <= r.status_code < 500:
+						return {"reachable": True, "status_code": r.status_code}
+				except Exception:
+					continue
+	except Exception:
+		return None
+	return None
+
+
+# ==============================
+# DATABASE HELPERS
+# ==============================
+def load_devices(db: Session) -> dict[int, models.Device]:
+	devices = db.query(models.Device).filter(models.Device.is_active == True).all()
+	return {d.cabinet_number: d for d in devices}
+
+
+def generate_lamp_code(lamp_str: str, devices: dict[int, models.Device]):
+	lamp_str = lamp_str.upper().strip()
+	pattern = r"^(\d)(\d)([A-D])$"
+	match = re.match(pattern, lamp_str)
+
+	if not match:
+		raise HTTPException(
+			status_code=400,
+			detail="Format harus seperti 11A, 21B, 58D (Lemari + Rak + Posisi A-D)"
+		)
+
+	lemari = int(match.group(1))
+	rak = int(match.group(2))
+	posisi = match.group(3)
+
+	if rak < 1 or rak > 8:
+		raise HTTPException(status_code=400, detail="Rak hanya ada 1 sampai 8")
+
+	posisi_index = {"A": 0, "B": 1, "C": 2, "D": 3}
+
+	# Lemari Putih terbagi 2 device: cabinet 1 (rak 1-4) dan cabinet 6 (rak 5-8)
+	if lemari == 1 and rak > 4:
+		device = devices.get(6)
+		if not device:
+			raise HTTPException(status_code=400, detail="Lemari Putih 2 belum dikonfigurasi")
+		if device.address_start is None:
+			raise HTTPException(status_code=400, detail=f"{device.name} belum memiliki konfigurasi alamat")
+		lamp_code = device.address_start + ((rak - 5) * 4) + posisi_index[posisi]
+	else:
+		device = devices.get(lemari)
+		if not device:
+			raise HTTPException(status_code=400, detail=f"Lemari {lemari} belum dikonfigurasi")
+		if device.address_start is None:
+			raise HTTPException(status_code=400, detail=f"{device.name} belum memiliki konfigurasi alamat")
+		lamp_code = device.address_start + ((rak - 1) * 4) + posisi_index[posisi]
+
+	if device.address_end is not None and lamp_code > device.address_end:
+		raise HTTPException(
+			status_code=400,
+			detail=f"Alamat lampu {lamp_code} melebihi batas {device.name} (max: {device.address_end})"
+		)
+
+	return lamp_code, device
+
 
 # ==============================
 # PYDANTIC MODELS
@@ -146,136 +176,35 @@ class HistoryItemResponse(BaseModel):
 		from_attributes = True
 
 
-# ==============================
-# LAMP MAPPING FUNCTION
-# ==============================
-def generate_lamp_code(lamp_str: str):
-	"""
-	Format baru: [Lemari][Rak][Posisi]
-	Contoh: 11A, 21B, 58D
-    
-	11A = Lemari 1, Rak 1, Posisi A (alamat 1)
-	58D = Lemari 5, Rak 8, Posisi D (alamat 144)
-	"""
-
-	lamp_str = lamp_str.upper().strip()
-	pattern = r"^(\d)(\d)([A-D])$"
-	match = re.match(pattern, lamp_str)
-
-	if not match:
-		raise HTTPException(
-			status_code=400,
-			detail="Format harus seperti 11A, 21B, 58D (Lemari + Rak + Posisi A-D)"
-		)
-
-	lemari = int(match.group(1))
-	rak = int(match.group(2))
-	posisi = match.group(3)
-
-	# Validasi Lemari
-	if lemari < 1 or lemari > 5:
-		raise HTTPException(
-			status_code=400,
-			detail="Lemari hanya ada 1 sampai 5"
-		)
-
-	# Validasi Rak
-	if rak < 1 or rak > 8:
-		raise HTTPException(
-			status_code=400,
-			detail="Rak hanya ada 1 sampai 8"
-		)
-
-	posisi_index = {
-		"A": 0,
-		"B": 1,
-		"C": 2,
-		"D": 3,
-	}
-
-	# Hitung alamat lampu
-	if lemari == 1:
-		# Lemari 1 punya 2 bagian: 1-16 dan 145-160
-		if rak <= 4:
-			# Bagian pertama (1-16)
-			lamp_code = ((rak - 1) * 4) + posisi_index[posisi] + 1
-		else:
-			# Bagian kedua (145-160)
-			lamp_code = 145 + ((rak - 5) * 4) + posisi_index[posisi]
-	else:
-		# Lemari 2-5: sequential
-		config = LEMARI_CONFIG[lemari]
-		base_address = config["start"]
-		lamp_code = base_address + ((rak - 1) * 4) + posisi_index[posisi]
-
-		# Validasi jangan melebihi range
-		if lamp_code > config["end"]:
-			raise HTTPException(
-				status_code=400,
-				detail=f"Alamat lampu {lamp_code} melebihi batas Lemari {lemari} (max: {config['end']})"
-			)
-
-	board = {
-		"id": f"LEMARI_{lemari}",
-		"name": f"ESP Lemari {lemari}",
-		"lemari_range": [lemari],
-		"address_range": [lamp_code, lamp_code],
-		"base_url": LEMARI_CONFIG[lemari].get("base_url", ""),
-	}
-
-	return lamp_code, board
+class DeviceCreate(BaseModel):
+	cabinet_number: int
+	name: str
+	ip_address: Optional[str] = None
+	is_active: Optional[bool] = True
+	address_start: Optional[int] = None
+	address_end: Optional[int] = None
 
 
-# ==============================
-# HTTP CLIENT
-# ==============================
-# Tidak perlu fungsi wrapper, langsung gunakan AsyncClient
+class DeviceUpdate(BaseModel):
+	name: Optional[str] = None
+	ip_address: Optional[str] = None
+	is_active: Optional[bool] = None
+	address_start: Optional[int] = None
+	address_end: Optional[int] = None
 
 
-# ==============================
-# ESP COMMUNICATION
-# ==============================
-async def _esp_send_cmd(board: dict, cmd: str) -> bool:
-	base_url = board["base_url"]
+class DeviceResponse(BaseModel):
+	id: int
+	cabinet_number: int
+	name: str
+	ip_address: Optional[str] = None
+	is_active: bool
+	last_seen: Optional[datetime] = None
+	address_start: Optional[int] = None
+	address_end: Optional[int] = None
 
-	if not base_url:
-		print(f"{board['name']} belum dikonfigurasi")
-		return False
-
-	url = f"{base_url}{SEND_PATH}"
-
-	try:
-		timeout = httpx.Timeout(connect=5.0, read=2.0, write=1.0, pool=2.0)
-		async with httpx.AsyncClient(timeout=timeout) as client:
-			r = await client.post(url, json={"cmd": cmd})
-			return r.status_code == 200
-	except Exception as e:
-		print(f"ERROR kirim ke {board['name']}:", e)
-		return False
-
-
-async def _esp_get_status(board: dict):
-	base_url = board["base_url"]
-
-	if not base_url:
-		return None
-
-	try:
-		timeout = httpx.Timeout(connect=5.0, read=2.0, write=1.0, pool=2.0)
-		async with httpx.AsyncClient(timeout=timeout) as client:
-			for url in (f"{base_url}{STATUS_PATH}", base_url, f"{base_url}/"):
-				try:
-					r = await client.get(url)
-					if r.status_code == 200:
-						return r.json()
-					if 200 <= r.status_code < 500:
-						return {"reachable": True, "status_code": r.status_code}
-				except Exception:
-					continue
-	except Exception:
-		return None
-
-	return None
+	class Config:
+		from_attributes = True
 
 
 # ==============================
@@ -289,12 +218,25 @@ async def control_lampu(
 	if request.state not in [0, 1]:
 		raise HTTPException(status_code=400, detail="State harus 0 atau 1")
 
+	devices = load_devices(db)
+	if not devices:
+		raise HTTPException(status_code=400, detail="Belum ada lemari yang dikonfigurasi")
+
 	lamp_input = request.lamp.upper()
-	lamp_code, board = generate_lamp_code(lamp_input)
+	lamp_code, device = generate_lamp_code(lamp_input, devices)
 
 	cmd = f"{lamp_code}{request.state}"
+	is_esp_online, esp_status = await _esp_send_cmd(device.ip_address, cmd)
 
-	is_esp_online = await _esp_send_cmd(board, cmd)
+	if esp_status == "not_configured":
+		raise HTTPException(
+			status_code=400,
+			detail=f"{device.name} belum dikonfigurasi. Atur IP di menu Device."
+		)
+
+	if is_esp_online:
+		device.last_seen = datetime.utcnow()
+		db.commit()
 
 	db_history = models.HistoryLampu(
 		lamp_number=lamp_code,
@@ -302,14 +244,14 @@ async def control_lampu(
 		success=is_esp_online,
 		buzzer_activated=bool(request.activate_buzzer),
 	)
-
 	db.add(db_history)
 	db.commit()
 	db.refresh(db_history)
 
 	return {
 		"message": "Perintah diproses",
-		"board": board["name"],
+		"board": device.name,
+		"configured": True,
 		"esp_status": "online" if is_esp_online else "offline",
 		"lamp_input": lamp_input,
 		"lamp_mapped": lamp_code,
@@ -340,79 +282,110 @@ async def get_history(
 
 
 # ==============================
-# ENDPOINT: STATUS SEMUA BOARD
+# ENDPOINT: DEVICE CRUD
+# ==============================
+@app.get("/api/devices", response_model=List[DeviceResponse])
+async def get_devices(db: Session = Depends(database.get_db)):
+	return db.query(models.Device).order_by(models.Device.cabinet_number).all()
+
+
+@app.post("/api/devices", response_model=DeviceResponse)
+async def create_device(device: DeviceCreate, db: Session = Depends(database.get_db)):
+	existing = db.query(models.Device).filter(
+		models.Device.cabinet_number == device.cabinet_number
+	).first()
+	if existing:
+		raise HTTPException(
+			status_code=400,
+			detail=f"Lemari {device.cabinet_number} sudah ada"
+		)
+	db_device = models.Device(**device.model_dump())
+	db.add(db_device)
+	db.commit()
+	db.refresh(db_device)
+	return db_device
+
+
+@app.put("/api/devices/{cabinet_number}", response_model=DeviceResponse)
+async def update_device(
+	cabinet_number: int,
+	device: DeviceUpdate,
+	db: Session = Depends(database.get_db)
+):
+	db_device = db.query(models.Device).filter(
+		models.Device.cabinet_number == cabinet_number
+	).first()
+	if not db_device:
+		raise HTTPException(status_code=404, detail=f"Lemari {cabinet_number} tidak ditemukan")
+	update_data = device.model_dump(exclude_unset=True)
+	for key, value in update_data.items():
+		setattr(db_device, key, value)
+	db.commit()
+	db.refresh(db_device)
+	return db_device
+
+
+@app.delete("/api/devices/{cabinet_number}")
+async def delete_device(cabinet_number: int, db: Session = Depends(database.get_db)):
+	db_device = db.query(models.Device).filter(
+		models.Device.cabinet_number == cabinet_number
+	).first()
+	if not db_device:
+		raise HTTPException(status_code=404, detail=f"Lemari {cabinet_number} tidak ditemukan")
+	db.delete(db_device)
+	db.commit()
+	return {"message": f"Lemari {cabinet_number} berhasil dihapus"}
+
+
+# ==============================
+# ENDPOINT: ESP STATUS
 # ==============================
 @app.get("/api/esp-status")
-async def esp_status():
-	"""
-	Mengembalikan status koneksi ESP per lemari dengan detail
-	"""
+async def esp_status(db: Session = Depends(database.get_db)):
+	devices = db.query(models.Device).filter(models.Device.is_active == True).all()
+	if not devices:
+		return {"message": "Belum ada lemari yang dikonfigurasi"}
+
 	status = {}
-
-	async def build_lemari_status(lemari_num: int, lemari_config: dict):
-		base_url = lemari_config.get("base_url", "")
-		putih1_url = lemari_config.get("putih1_url", "")
-		secondary_url = lemari_config.get("secondary_url", "")
-
-		# Cek primary dan secondary (khusus Lemari 1) secara paralel agar response tidak tertahan serial timeout
-		tasks = [
-			asyncio.create_task(_is_esp_online(base_url)) if base_url else None,
-			asyncio.create_task(_is_esp_online(putih1_url)) if lemari_num == 1 and putih1_url else None,
-			asyncio.create_task(_is_esp_online(secondary_url)) if lemari_num == 1 and secondary_url else None,
-		]
-		results = await asyncio.gather(*(task for task in tasks if task), return_exceptions=True)
-		online = any(result is True for result in results)
-
-		color_name = lemari_config.get("color_name", f"Lemari {lemari_num}")
-
-		if lemari_num == 1:
-			address_range = [1, 16, 145, 160]
-			payload = {
-				"name": "Lemari Putih",
-				"color_name": color_name,
-				"online": online,
-				"lemari_range": [lemari_num],
-				"address_range": address_range,
-				"url": base_url if base_url else "Not configured",
-				"urls": [
-					{
-						"label": "Putih1",
-						"value": putih1_url if putih1_url else "Not configured"
-					},
-					{
-						"label": "Putih2",
-						"value": base_url if base_url else "Not configured"
-					}
-				],
-				"sections": [
-					{
-						"name": "Section 1 (Rak 1-4): 11A-14D",
-						"range": [1, 16]
-					},
-					{
-						"name": "Section 2 (Rak 5-8): 15A-18D",
-						"range": [145, 160]
-					}
-				]
-			}
-		else:
-			address_range = [lemari_config["start"], lemari_config["end"]]
-			payload = {
-				"name": lemari_config.get("name", f"Lemari {lemari_num}"),
-				"color_name": color_name,
-				"online": online,
-				"lemari_range": [lemari_num],
-				"address_range": address_range,
-				"url": base_url if base_url else "Not configured"
-			}
-
-		return lemari_num, payload
-
-	lemari_results = await asyncio.gather(
-		*(build_lemari_status(lemari_num, lemari_config) for lemari_num, lemari_config in LEMARI_CONFIG.items())
-	)
-
-	for lemari_num, payload in lemari_results:
-		status[f"LEMARI_{lemari_num}"] = payload
-
+	for dev in devices:
+		online = await _is_esp_online(dev.ip_address) if dev.ip_address else False
+		status[f"CABINET_{dev.cabinet_number}"] = {
+			"name": dev.name,
+			"cabinet_number": dev.cabinet_number,
+			"online": online,
+			"configured": bool(dev.ip_address),
+			"config_message": "Online" if online else (
+				"Offline" if dev.ip_address else "Belum diKonfigurasi"
+			),
+			"address_range": [dev.address_start, dev.address_end],
+			"ip_address": dev.ip_address or "Not configured",
+			"last_seen": dev.last_seen.isoformat() if dev.last_seen else None,
+		}
 	return status
+
+
+# ==============================
+# BACKGROUND HEARTBEAT
+# ==============================
+async def heartbeat_loop():
+	while True:
+		try:
+			db = database.SessionLocal()
+			devices = db.query(models.Device).filter(
+				models.Device.is_active == True
+			).all()
+			for dev in devices:
+				if dev.ip_address:
+					is_online = await _is_esp_online(dev.ip_address)
+					if is_online:
+						dev.last_seen = datetime.utcnow()
+			db.commit()
+			db.close()
+		except Exception as e:
+			print(f"Heartbeat error: {e}")
+		await asyncio.sleep(60)
+
+
+@app.on_event("startup")
+async def startup():
+	asyncio.create_task(heartbeat_loop())

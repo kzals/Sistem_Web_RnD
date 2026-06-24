@@ -4,10 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "dev:backend": "powershell -NoProfile -Command \"Set-Location 'SampleTracking/src'; python -m uvicorn backend.main:app --reload --port 8000\"",
-    "dev:backend:alt": "powershell -NoProfile -Command \"Set-Location 'SampleTracking/src'; python -m uvicorn backend.main:app --reload --port 8001\"",
-    "start:backend": "powershell -NoProfile -Command \"Set-Location 'SampleTracking/src'; python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000\"",
-    "start:backend:alt": "powershell -NoProfile -Command \"Set-Location 'SampleTracking/src'; python -m uvicorn backend.main:app --host 0.0.0.0 --port 8001\"",
+    "dev:backend": "powershell -NoProfile -Command \"Set-Location 'backend'; python -m uvicorn main:app --reload --port 8001\"",
+    "dev:backend2": "powershell -NoProfile -Command \"Set-Location 'backend'; python -m uvicorn main:app --reload --port 8000\"",
+    "start:backend": "powershell -NoProfile -Command \"Set-Location 'backend'; python -m uvicorn main:app --host 0.0.0.0 --port 8001\"",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
