@@ -289,29 +289,7 @@ ESP_Lemari6_Base=
 
 Biarkan kosong jika lemari belum terpasang ESP.
 
-#### Step 2: Seed data ke Database
 
-Jalankan seed script **satu kali** untuk memigrasi data ESP dari `.env` ke database:
-
-```bash
-# Masuk folder backend dulu
-cd backend
-python seed_devices.py
-```
-
-Output yang diharapkan:
-```
-Berhasil menambahkan 6 device ke database.
-  - Lemari Putih 1 (cabinet 1) dengan IP
-  - Lemari Kuning (cabinet 2) dengan IP
-  - ...
-```
-
-**Catatan:** Setelah seed selesai, konfigurasi ESP dikelola via:
-- **API** `/api/devices` (GET, POST, PUT, DELETE)
-- **Langsung** di endpoint `/api/devices` via browser/swagger
-
-File `backend/.env` sudah tidak dibaca oleh backend untuk operasional sehari-hari.
 
 ---
 

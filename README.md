@@ -41,13 +41,10 @@ ui_web_rnd/
 ├── backend/                # FastAPI backend
 │   ├── main.py             # ESP32 lamp control API + device CRUD + heartbeat
 │   ├── models.py           # SQLAlchemy models (Device, HistoryLampu)
-│   ├── database.py         # DB connection (SQLite)
-│   └── seed_devices.py     # One-time migration: .env → DB
-├── SampleTracking/         # Legacy ESP tracking backend
-│   └── src/
-│       └── backend/
+│   └── database.py         # DB connection (SQLite)
 ├── docs/                   # User manual & documentation
-├── database/               # DB migration scripts
+├── database/               # SQL migration scripts & SP definitions
+│   └── query_sql/          # Stored procedures + full schema snapshot
 ├── scripts/                # Ngrok configs, utility scripts
 ├── public/                 # Static assets
 ├── .env.example            # Environment variable template
@@ -78,10 +75,7 @@ cd backend
 pip install -r requirements.txt
 cd ..
 
-# 5. Seed data ESP ke database
-python -m backend.seed_devices
-
-# 6. Jalankan development server
+# 5. Jalankan development server
 npm run dev
 ```
 

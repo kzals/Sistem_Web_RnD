@@ -41,6 +41,9 @@ next-env.d.ts
 # python virtual environments
 .venv/
 /SampleTracking/venv/
+# SampleTracking legacy project (separate repo)
+/SampleTracking/
+backend/seed_devices.py
 
 # python bytecode
 __pycache__/
