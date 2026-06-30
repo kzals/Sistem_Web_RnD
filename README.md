@@ -44,7 +44,8 @@ ui_web_rnd/
 │   └── database.py         # DB connection (SQLite)
 ├── docs/                   # User manual & documentation
 ├── database/               # SQL migration scripts & SP definitions
-│   └── query_sql/          # Stored procedures + full schema snapshot
+│   ├── sp_full.sql         # Kumpulan semua stored procedure
+│   └── schema_full.sql     # Full CREATE TABLE schema snapshot
 ├── scripts/                # Ngrok configs, utility scripts
 ├── public/                 # Static assets
 ├── .env.example            # Environment variable template
