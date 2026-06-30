@@ -15,7 +15,7 @@ const cancelTimeout = parseInt(process.env.DB_CANCEL_TIMEOUT || '30000', 10);
 
 const config: sql.config = {
   server: dbServer,
-  database: process.env.DB_DATABASE || 'TestDB',
+  database: process.env.DB_DATABASE,
   user: process.env.DB_USER || 'sa',
   password: process.env.DB_PASSWORD || '',
   port: parseInt(process.env.DB_PORT || '1433'),

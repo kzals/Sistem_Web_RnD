@@ -14,6 +14,7 @@ export default function DetailProduct() {
   const searchParams = useSearchParams();
   const id = params?.id as string;
   const fromPage = searchParams.get('from') || 'search';
+  const notifId = searchParams.get('notifId') || '';
 
   const [productData, setProductData] = useState<ProductRecord | null>(null);
   const [spesifikasiData, setSpesifikasiData] = useState<SpesifikasiRecord | null>(null);
@@ -30,10 +31,26 @@ export default function DetailProduct() {
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
 
   const handleBack = () => {
-    if (fromPage === 'products') {
-      router.push('/products');
-    } else {
-      router.push('/search');
+    switch (fromPage) {
+      case 'search':
+        router.push('/search');
+        break;
+      case 'products':
+        router.push('/products');
+        break;
+      case 'form-pengambilan':
+        router.push('/form-pengambilan');
+        break;
+      case 'loan-notifications':
+        router.push(`/loan-notifications/${notifId}`);
+        break;
+      default:
+        if (window.history.length > 1) {
+          router.back();
+        } else {
+          router.push('/search');
+        }
+        break;
     }
   };
 

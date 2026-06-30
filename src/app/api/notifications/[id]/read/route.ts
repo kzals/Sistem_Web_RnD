@@ -14,14 +14,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       const returnId = Math.abs(rowNum);
       await pool.request()
         .input('id', sql.Int, returnId)
-        .query(`
-          IF COL_LENGTH('Sample_Return_Notifications', 'Is_Read') IS NULL
-            ALTER TABLE Sample_Return_Notifications ADD Is_Read BIT NOT NULL DEFAULT 0;
-
-          UPDATE Sample_Return_Notifications
-          SET Is_Read = 1
-          WHERE ID_Notification = @id
-        `);
+        .execute('sp_SampleReturnNotif_MarkRead');
     } else {
       await pool.request()
         .input('rowNum', sql.Int, rowNum)

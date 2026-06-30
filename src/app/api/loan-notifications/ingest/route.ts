@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getConnection, sql } from '@/lib/db';
-import { ensureNotificationTables } from '../_shared';
 import webpush from 'web-push';
 
 type IngestBody = {
@@ -100,7 +99,6 @@ async function sendPushNotification(
         const statusCode = Number(pushErr?.statusCode || 0);
         console.error('⚠️ Gagal kirim web push:', statusCode || '-', pushErr?.message || pushErr);
 
-        // Remove expired/stale subscriptions
         if (statusCode === 404 || statusCode === 410) {
           await pool.request()
             .input('endpoint', sql.NVarChar(sql.MAX), sub.Endpoint)
@@ -130,35 +128,23 @@ export async function POST(request: NextRequest) {
     }
 
     const pool = await getConnection();
-    await ensureNotificationTables(pool);
 
-    const exists = await pool.request()
+    const upsertResult = await pool.request()
       .input('requestId', sql.NVarChar(64), body.requestId)
-      .query('SELECT Request_ID FROM Loan_Request_Notifications WHERE Request_ID = @requestId');
+      .input('customerName', sql.NVarChar(255), body.customerName)
+      .input('departemen', sql.NVarChar(255), body.departemen)
+      .input('requesterUserKey', sql.NVarChar(120), body.requesterUserKey || null)
+      .input('requesterDept', sql.NVarChar(255), body.requesterDept || body.departemen)
+      .input('requestedStatus', sql.NVarChar(50), requestedStatus)
+      .input('notes', sql.NVarChar(sql.MAX), body.notes || null)
+      .input('urgency', sql.NVarChar(20), body.urgency || 'Sedang')
+      .output('isDuplicate', sql.Bit)
+      .execute('sp_LoanRequest_Upsert');
 
-    if (exists.recordset.length > 0) {
-      await pool.request()
-        .input('requestId', sql.NVarChar(64), body.requestId)
-        .input('customerName', sql.NVarChar(255), body.customerName)
-        .input('departemen', sql.NVarChar(255), body.departemen)
-        .input('requesterUserKey', sql.NVarChar(120), body.requesterUserKey || null)
-        .input('requesterDept', sql.NVarChar(255), body.requesterDept || body.departemen)
-        .input('requestedStatus', sql.NVarChar(50), requestedStatus)
-        .input('notes', sql.NVarChar(sql.MAX), body.notes || null)
-        .input('urgency', sql.NVarChar(20), body.urgency || 'Sedang')
-        .query(`
-          UPDATE Loan_Request_Notifications
-          SET
-            Customer_Name = @customerName,
-            Departemen = @departemen,
-            Requester_User_Key = @requesterUserKey,
-            Requester_Dept = @requesterDept,
-            Requested_Status = @requestedStatus,
-            Notes = @notes,
-            Urgency = @urgency
-          WHERE Request_ID = @requestId
-        `);
+    const isDuplicate = upsertResult.output.isDuplicate;
+    const createdAt = String(upsertResult.recordset?.[0]?.Created_At || '').trim();
 
+    if (isDuplicate) {
       const existingItemsResult = await pool.request()
         .input('requestId', sql.NVarChar(64), body.requestId)
         .query(`
@@ -182,32 +168,11 @@ export async function POST(request: NextRequest) {
           .input('design', sql.NVarChar(255), sample.design)
           .input('lemari', sql.NVarChar(50), sample.lemari || null)
           .input('rak', sql.NVarChar(50), sample.rakHanger || null)
-          .query(`
-            INSERT INTO Loan_Request_Items (Request_ID, ID_Sampel, Design, Lemari, Rak_Hanger)
-            VALUES (@requestId, @idSampel, @design, @lemari, @rak)
-          `);
+          .execute('sp_LoanRequest_InsertItem');
       }
 
       return NextResponse.json({ success: true, duplicate: true, requestId: body.requestId, synced: true });
     }
-
-    const insertResult = await pool.request()
-      .input('requestId', sql.NVarChar(64), body.requestId)
-      .input('customerName', sql.NVarChar(255), body.customerName)
-      .input('departemen', sql.NVarChar(255), body.departemen)
-      .input('requesterUserKey', sql.NVarChar(120), body.requesterUserKey || null)
-      .input('requesterDept', sql.NVarChar(255), body.requesterDept || body.departemen)
-      .input('requestedStatus', sql.NVarChar(50), requestedStatus)
-      .input('notes', sql.NVarChar(sql.MAX), body.notes || null)
-      .input('urgency', sql.NVarChar(20), body.urgency || 'Sedang')
-      .query(`
-        INSERT INTO Loan_Request_Notifications
-        (Request_ID, Customer_Name, Departemen, Requester_User_Key, Requester_Dept, Recipient_Mode, Requested_Status, Status_Request, Notes, Urgency, Requested_By_App, Is_Read, TargetApp)
-        OUTPUT CONVERT(VARCHAR(19), INSERTED.Created_At, 120) AS Created_At
-        VALUES (@requestId, @customerName, @departemen, @requesterUserKey, @requesterDept, 'RND_ALL', @requestedStatus, 'Baru', @notes, @urgency, 'ui_crud_generic', 0, 'ui_web_rnd')
-      `);
-
-    const createdAt = String(insertResult.recordset?.[0]?.Created_At || '').trim();
 
     for (const sample of body.samples) {
       await pool.request()
@@ -216,13 +181,9 @@ export async function POST(request: NextRequest) {
         .input('design', sql.NVarChar(255), sample.design)
         .input('lemari', sql.NVarChar(50), sample.lemari || null)
         .input('rak', sql.NVarChar(50), sample.rakHanger || null)
-        .query(`
-          INSERT INTO Loan_Request_Items (Request_ID, ID_Sampel, Design, Lemari, Rak_Hanger)
-          VALUES (@requestId, @idSampel, @design, @lemari, @rak)
-        `);
+        .execute('sp_LoanRequest_InsertItem');
     }
 
-    // ✅ Send push notification to R&D staff
     const pushMessage = `Permintaan pengambilan sampel baru dari ${body.departemen}: ${body.samples.length} sampel (${requestedStatus})`;
     const notificationType = body.notificationType || 'pengambilan';
     const pushResult = await sendPushNotification(

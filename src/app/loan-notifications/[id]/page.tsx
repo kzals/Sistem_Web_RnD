@@ -279,7 +279,7 @@ export default function LoanNotificationDetailPage() {
                     <td className="px-4 py-3 text-slate-700">{sample.Lemari || '-'}</td>
                     <td className="px-4 py-3 text-slate-700">{sample.Rak_Hanger || '-'}</td>
                     <td className="px-4 py-3">
-                      <Link href={`/detail/${sample.ID_Sampel}`} className="inline-flex items-center rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-100">
+                      <Link href={`/detail/${sample.ID_Sampel}?from=loan-notifications&notifId=${params.id}`} className="inline-flex items-center rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-100">
                         Detail
                       </Link>
                     </td>
@@ -288,6 +288,7 @@ export default function LoanNotificationDetailPage() {
               </tbody>
             </table>
           </div>
+          {totalSamplePages > 1 && (
           <div className="mt-4 flex items-center justify-between gap-3 text-sm">
             <div className="text-slate-500">
               Halaman {safeSamplePage} dari {totalSamplePages}
@@ -311,6 +312,7 @@ export default function LoanNotificationDetailPage() {
               </button>
             </div>
           </div>
+          )}
         </div>
       </div>
     </div>

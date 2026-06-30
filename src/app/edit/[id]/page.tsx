@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import { KonstruksiTenunRecord, ParameterFisikRecord, ProductRecord, SpesifikasiRecord } from '@/types/user';
 import { type AppRole, normalizeAppRole } from '@/lib/auth';
 
@@ -10,6 +10,8 @@ export default function EditProduct() {
   const router = useRouter();
   const params = useParams();
   const id = params?.id as string;
+  const searchParams = useSearchParams();
+  const fromPage = searchParams.get('from') || 'search';
   const [role, setRole] = useState<AppRole | null>(null);
 
   const [productData, setProductData] = useState<ProductRecord>({
@@ -396,7 +398,7 @@ export default function EditProduct() {
         }
       }
 
-      router.replace(`/detail/${id}`);
+      router.replace(`/detail/${id}?from=${fromPage}`);
     } catch (error: any) {
       showMessage('error', error.message);
     } finally {
@@ -899,7 +901,7 @@ export default function EditProduct() {
 
         <div className="flex gap-4 mt-8 mb-8">
           <Link
-            href={`/detail/${id}`}
+            href={`/detail/${id}?from=${fromPage}`}
             className="flex-1 bg-gray-500 hover:bg-gray-600 text-white font-bold py-3 px-6 rounded-lg focus:outline-none focus:shadow-outline transition-all duration-200 text-center shadow-md hover:shadow-lg"
           >
             Batal

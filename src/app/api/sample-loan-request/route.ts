@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getConnection, sql } from '@/lib/db';
 import { verifySessionToken, COOKIE_NAME, canAccessRequester } from '@/lib/auth';
 import crypto from 'crypto';
-import { ensureNotificationTables } from '../loan-notifications/_shared';
 import webpush from 'web-push';
 
 type RequestBody = {
@@ -20,34 +19,6 @@ function normalizeLoanStatus(value: unknown): 'Dipinjam' | 'Keluar' | null {
   if (raw === 'keluar') return 'Keluar';
   if (raw === 'dipinjam' || raw === 'siap dikirim') return 'Dipinjam';
   return null;
-}
-
-async function ensureTables(pool: sql.ConnectionPool) {
-  await pool.request().query(`
-    IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'Sample_Loan')
-    CREATE TABLE Sample_Loan (
-      ID_Loan INT PRIMARY KEY IDENTITY(1,1),
-      ID_Sampel INT NOT NULL,
-      Customer_Name NVARCHAR(255) NOT NULL,
-      Departemen NVARCHAR(255) NULL,
-      Loan_Date DATETIME DEFAULT GETDATE(),
-      Return_Date DATETIME NULL,
-      Status NVARCHAR(50) DEFAULT 'Dipinjam',
-      Notes NVARCHAR(MAX),
-      Created_At DATETIME DEFAULT GETDATE(),
-      FOREIGN KEY (ID_Sampel) REFERENCES Master_Produk(ID_Sampel)
-    )
-  `);
-
-  await pool.request().query(`
-    IF COL_LENGTH('Sample_Loan', 'Departemen') IS NULL
-      ALTER TABLE Sample_Loan ADD Departemen NVARCHAR(255) NULL;
-  `);
-
-  await pool.request().query(`
-    IF COL_LENGTH('Sample_Loan', 'Request_Group_ID') IS NULL
-      ALTER TABLE Sample_Loan ADD Request_Group_ID NVARCHAR(64) NULL;
-  `);
 }
 
 async function fetchSampleRows(pool: sql.ConnectionPool, sampleIds: number[]) {
@@ -170,8 +141,6 @@ export async function POST(request: NextRequest) {
     }
 
     const pool = await getConnection();
-    await ensureTables(pool);
-    await ensureNotificationTables(pool);
 
     const rows = await fetchSampleRows(pool, sampleIds);
     if (rows.length !== sampleIds.length) {
@@ -187,11 +156,8 @@ export async function POST(request: NextRequest) {
         .input('departemen', sql.NVarChar(255), session.dept)
         .input('status', sql.NVarChar(50), normalizedStatus)
         .input('notes', sql.NVarChar(sql.MAX), body.notes?.trim() || null)
-        .input('requestGroupId', sql.NVarChar(64), requestId)
-        .query(`
-          INSERT INTO Sample_Loan (ID_Sampel, Customer_Name, Departemen, Status, Notes, Request_Group_ID)
-          VALUES (@idSampel, @customerName, @departemen, @status, @notes, @requestGroupId)
-        `);
+        .output('newLoanId', sql.Int)
+        .execute('sp_SampleLoan_Insert');
 
       await pool.request()
         .input('requestId', sql.NVarChar(64), requestId)
@@ -199,10 +165,7 @@ export async function POST(request: NextRequest) {
         .input('design', sql.NVarChar(255), row.Design)
         .input('lemari', sql.NVarChar(50), row.Lemari || null)
         .input('rak', sql.NVarChar(50), row.Rak_Hanger || null)
-        .query(`
-          INSERT INTO Loan_Request_Items (Request_ID, ID_Sampel, Design, Lemari, Rak_Hanger)
-          VALUES (@requestId, @idSampel, @design, @lemari, @rak)
-        `);
+        .execute('sp_LoanRequest_InsertItem');
     }
 
     await pool.request()
@@ -214,11 +177,8 @@ export async function POST(request: NextRequest) {
       .input('requestedStatus', sql.NVarChar(50), normalizedStatus)
       .input('notes', sql.NVarChar(sql.MAX), body.notes?.trim() || null)
       .input('urgency', sql.NVarChar(20), body.urgency || 'Sedang')
-      .query(`
-        INSERT INTO Loan_Request_Notifications
-        (Request_ID, Customer_Name, Departemen, Requester_User_Key, Requester_Dept, Recipient_Mode, Requested_Status, Status_Request, Notes, Urgency, Requested_By_App, Is_Read, TargetApp)
-        VALUES (@requestId, @customerName, @departemen, @requesterUserKey, @requesterDept, 'RND_ALL', @requestedStatus, 'Baru', @notes, @urgency, 'ui_web_rnd', 0, 'ui_web_rnd')
-      `);
+      .output('isDuplicate', sql.Bit)
+      .execute('sp_LoanRequest_Upsert');
 
     const pushResult = await sendPushNotificationToRnd({
       requestId,

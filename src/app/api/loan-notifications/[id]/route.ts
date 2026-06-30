@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getConnection, sql } from '@/lib/db';
-import { ensureNotificationTables } from '../_shared';
 
 export async function GET(
   request: NextRequest,
@@ -9,33 +8,20 @@ export async function GET(
   try {
     const requestId = params.id;
     const pool = await getConnection();
-    await ensureNotificationTables(pool);
 
-    const header = await pool.request()
+    const result = await pool.request()
       .input('requestId', sql.NVarChar(64), requestId)
-      .query(`
-        SELECT Request_ID, Customer_Name, Departemen, Requested_Status, Status_Request, Notes, Urgency, Requested_By_App, Is_Read,
-               Created_At AS Created_At
-        FROM Loan_Request_Notifications
-        WHERE LTRIM(RTRIM(Request_ID)) = LTRIM(RTRIM(@requestId))
-      `);
+      .execute('sp_LoanRequest_GetDetail');
 
-    if (header.recordset.length === 0) {
+    const recordsets = result.recordsets as any as sql.IRecordSet<any>[];
+
+    if (!recordsets[0]?.length) {
       return NextResponse.json({ error: 'Notifikasi tidak ditemukan' }, { status: 404 });
     }
 
-    const items = await pool.request()
-      .input('requestId', sql.NVarChar(64), requestId)
-      .query(`
-        SELECT ID_Item, Request_ID, ID_Sampel, Design, Lemari, Rak_Hanger, Created_At
-        FROM Loan_Request_Items
-        WHERE LTRIM(RTRIM(Request_ID)) = LTRIM(RTRIM(@requestId))
-        ORDER BY ID_Item ASC
-      `);
-
     return NextResponse.json({
-      notification: header.recordset[0],
-      samples: items.recordset,
+      notification: recordsets[0][0],
+      samples: recordsets[1] || [],
     });
   } catch (error: any) {
     console.error('Loan notification detail error:', error);

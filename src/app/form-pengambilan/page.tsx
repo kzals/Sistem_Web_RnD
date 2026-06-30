@@ -274,7 +274,7 @@ export default function FormPengambilanPage() {
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
                             <Link
-                              href={`/detail/${item.IdSampel}`}
+                              href={`/detail/${item.IdSampel}?from=form-pengambilan`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="inline-flex items-center rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700 hover:bg-sky-100"

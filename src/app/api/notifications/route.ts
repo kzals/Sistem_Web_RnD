@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getConnection, sql } from '@/lib/db';
 import { verifySessionToken, COOKIE_NAME } from '@/lib/auth';
-import { ensureNotificationTables } from '../loan-notifications/_shared';
-
 export const dynamic = 'force-dynamic';
 
 function parseSqlDateTimeToMs(value: unknown): number {
@@ -36,38 +34,6 @@ export async function GET(request: NextRequest) {
     const session = token ? await verifySessionToken(token) : null;
 
     const pool = await getConnection();
-
-    await ensureNotificationTables(pool);
-
-    await pool.request().query(`
-      IF NOT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'Sample_Return_Notifications')
-      CREATE TABLE Sample_Return_Notifications (
-        ID_Notification INT PRIMARY KEY IDENTITY(1,1),
-        Sample_Ids NVARCHAR(MAX) NOT NULL,
-        Loan_Ids NVARCHAR(MAX) NOT NULL,
-        Count_Items INT NOT NULL,
-        Sender_Departemen NVARCHAR(255) NOT NULL DEFAULT 'Unknown',
-        Is_Read BIT NOT NULL DEFAULT 0,
-        Pickup_Status NVARCHAR(50) NOT NULL DEFAULT 'Baru',
-        Pickup_Confirmed_At DATETIME2 NULL,
-        Created_At DATETIME2 NOT NULL DEFAULT GETDATE()
-      )
-    `);
-
-    await pool.request().query(`
-      IF COL_LENGTH('Sample_Return_Notifications', 'Is_Read') IS NULL
-        ALTER TABLE Sample_Return_Notifications ADD Is_Read BIT NOT NULL DEFAULT 0;
-    `);
-
-    await pool.request().query(`
-      IF COL_LENGTH('Sample_Return_Notifications', 'Requester_User_Key') IS NULL
-        ALTER TABLE Sample_Return_Notifications ADD Requester_User_Key NVARCHAR(120) NULL;
-    `);
-
-    await pool.request().query(`
-      IF COL_LENGTH('Sample_Return_Notifications', 'Requester_Dept') IS NULL
-        ALTER TABLE Sample_Return_Notifications ADD Requester_Dept NVARCHAR(255) NULL;
-    `);
 
     const loanFilters: string[] = [];
     if (session?.role === 'requester') {
